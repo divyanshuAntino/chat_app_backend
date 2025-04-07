@@ -1,8 +1,13 @@
 package controller
 
 import (
+	"net/http"
+
+	"github.com/divyanshu050303/chat-app-backend/helper"
+	"github.com/divyanshu050303/chat-app-backend/models"
 	"github.com/divyanshu050303/chat-app-backend/repository"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 type UserController struct {
@@ -10,6 +15,46 @@ type UserController struct {
 }
 
 func (ctrl *UserController) Createuser(c *fiber.Ctx) error {
+	userModel := models.UserModels{
+		UserId: uuid.New().String(),
+	}
+	err := c.BodyParser(&userModel)
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Bad Request", nil)
+		return err
+	}
+	var existingUser models.UserModels
+	err = ctrl.Repo.DB.Where("user_email=?", userModel.UserEmail).Find(&userModel).Error
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Bad request ", nil)
+		return err
+	}
+	if existingUser.UserId != "" {
+		helper.ApiResponse(c, http.StatusConflict, "User Allready Exist", nil)
+		return nil
+	}
+	err = ctrl.Repo.DB.Create(&userModel).Error
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Could not create the user", nil)
+		return nil
+	}
+	accessToken, refreshToken, err := helper.GenerateToken(userModel)
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Could not generate the accesstoken", nil)
+		return err
+	}
+	data := map[string]any{
+		"token": map[string]string{
+			"accessToken":  accessToken,
+			"refreshToken": refreshToken,
+		},
+		"user": map[string]any{
+			"id":        userModel.UserId,
+			"userName":  userModel.UserName,
+			"userEmail": userModel.UserEmail,
+		},
+	}
+	helper.ApiResponse(c, http.StatusOK, "User Create successfully", data)
 	return nil
 }
 func (ctrl *UserController) LoginUser(c *fiber.Ctx) error {
