@@ -51,7 +51,7 @@ func (ctrl *UserController) Createuser(c *fiber.Ctx) error {
 		},
 		"user": map[string]any{
 			"id":        userModel.UserId,
-			"userName":  userModel.UserName,
+			"userName":  userModel.Name,
 			"userEmail": userModel.UserEmail,
 		},
 	}
@@ -93,11 +93,29 @@ func (ctrl *UserController) LoginUser(c *fiber.Ctx) error {
 		},
 		"user": map[string]any{
 			"id":        existingUser.UserId,
-			"userName":  existingUser.UserName,
+			"userName":  existingUser.Name,
 			"userEmail": existingUser.UserEmail,
 		},
 	}
 	helper.ApiResponse(c, http.StatusOK, "Login successfully", data)
 
+	return nil
+}
+
+func (ctrl *UserController) UpdateUserDetails(c *fiber.Ctx) error {
+	err := helper.CheckUserIsLoggedInOrNot(c)
+	if err != nil {
+		helper.ApiResponse(c, http.StatusUnauthorized, "Invalid Token", nil)
+		return err
+	}
+	req := c.Request()
+	tokenString := string(req.Header.Peek("Authorization"))
+	uuid, err := helper.GetUserUUIDFromToken(tokenString)
+	var existingUser models.UserModels
+	err = ctrl.Repo.DB.Where("user_id=?", uuid).Find(&existingUser).Error
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Bad request ", nil)
+		return err
+	}
 	return nil
 }
