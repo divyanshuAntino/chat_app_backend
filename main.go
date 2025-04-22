@@ -35,11 +35,14 @@ func main() {
 	err = models.Migrate(db)
 
 	if err != nil {
-		log.Fatal("Count not migrate the databse")
+		log.Fatal("Could not migrate the databse")
 	}
 	app := fiber.New()
 	routes.SetUpUserRoutes(app, db)
 
-	app.Listen(":8000")
+	// Start Socket.IO server
+	// controller.OnSocketConnect(&fiber.Ctx{}, db)
 
+	// Start Fiber server
+	app.Listen(":8000")
 }

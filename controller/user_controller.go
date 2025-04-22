@@ -81,7 +81,7 @@ func (ctrl *UserController) LoginUser(c *fiber.Ctx) error {
 		return nil
 
 	}
-	accessToken, refreshToken, err := helper.GenerateToken(userModel)
+	accessToken, refreshToken, err := helper.GenerateToken(existingUser)
 	if err != nil {
 		helper.ApiResponse(c, http.StatusBadRequest, "Could not generate the accesstoken", nil)
 		return err
@@ -103,10 +103,12 @@ func (ctrl *UserController) LoginUser(c *fiber.Ctx) error {
 }
 
 func (ctrl *UserController) UpdateUserDetails(c *fiber.Ctx) error {
-	err := helper.CheckUserIsLoggedInOrNot(c)
-	if err != nil {
-		helper.ApiResponse(c, http.StatusUnauthorized, "Invalid Token", nil)
-		return err
+
+	authError := helper.CheckUserIsLoggedInOrNot(c)
+
+	if authError != "" {
+
+		return helper.ApiResponse(c, http.StatusUnauthorized, authError, nil) // This should stop further execution
 	}
 	req := c.Request()
 	tokenString := string(req.Header.Peek("Authorization"))
@@ -117,5 +119,43 @@ func (ctrl *UserController) UpdateUserDetails(c *fiber.Ctx) error {
 		helper.ApiResponse(c, http.StatusBadRequest, "Bad request ", nil)
 		return err
 	}
+	if existingUser.UserId == "" {
+		helper.ApiResponse(c, http.StatusNotFound, "User Not Found", nil)
+		return nil
+	}
+	var input map[string]interface{}
+	if err := c.BodyParser(&input); err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Bad Request", nil)
+		return nil
+	}
+	err = ctrl.Repo.DB.Model(&existingUser).Updates(input).Error
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Someting went wrong", nil)
+		return nil
+	}
+	helper.ApiResponse(c, http.StatusOK, "User updated successfully", nil)
+
 	return nil
+}
+func (ctrl *UserController) GetAllUser(c *fiber.Ctx) error {
+	authError := helper.CheckUserIsLoggedInOrNot(c)
+	if authError != "" {
+		return helper.ApiResponse(c, http.StatusUnauthorized, authError, nil)
+	}
+	req := c.Request()
+	tokenString := string(req.Header.Peek("Authorization"))
+	uuid, err := helper.GetUserUUIDFromToken(tokenString)
+	var existingUser models.UserModels
+	err = ctrl.Repo.DB.Where("user_id=?", uuid).Find(&existingUser).Error
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Bad request ", nil)
+		return err
+	}
+	var users []models.UserModels
+	err = ctrl.Repo.DB.Where("user_id != ?", uuid).Find(&users).Error
+	if err != nil {
+		return helper.ApiResponse(c, http.StatusInternalServerError, "Failed to fetch users", nil)
+	}
+
+	return helper.ApiResponse(c, http.StatusOK, "Users fetched successfully", users)
 }

@@ -2,27 +2,26 @@ package helper
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func CheckUserIsLoggedInOrNot(c *fiber.Ctx) error {
+func CheckUserIsLoggedInOrNot(c *fiber.Ctx) string {
 	req := c.Request()
 	tokenString := string(req.Header.Peek("Authorization"))
+	fmt.Printf("Token string: '%s'\n", tokenString) // Debug print
 
 	if tokenString == "" {
-		ApiResponse(c, http.StatusUnauthorized, "token is missing", nil)
 
-		return nil
+		return "Token Missing"
 	}
-	fmt.Println(tokenString)
 
 	_, err := ValidateToken(tokenString)
 	if err != nil {
-		ApiResponse(c, http.StatusUnauthorized, "invalid tokens", nil)
 
-		return nil
+		return "invalid token"
 	}
-	return nil
+
+	fmt.Println("No auth errors") // Debug
+	return ""
 }
