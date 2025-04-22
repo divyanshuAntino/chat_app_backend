@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Socket.IO Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        #messages {
+            height: 300px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        .received {
+            background-color: #f0f0f0;
+        }
+
+        .sent {
+            background-color: #e3f2fd;
+            text-align: right;
+        }
+
+        input,
+        button {
+            padding: 8px;
+            margin: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Socket.IO Chat Test</h1>
+    <div id="messages"></div>
+    <input type="text" id="messageInput" placeholder="Type a message...">
+    <button onclick="sendMessage()">Send Message</button>
+    <button onclick="sendPrivateMessage()">Send Private Message</button>
+
+    <script>
+        // Connect to the Socket.IO server using ngrok URL
+        const socket = io('http://127.0.0.1:5001', {
+            transports: ['websocket'],
+        });
+
+        // Connection event
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            addMessage('System: Connected to server', 'system');
+        });
+
+        // Listen for chat messages
+        socket.on('chat message', (data) => {
+            console.log('Received message:', data);
+            addMessage(`${data.from}: ${data.message}`, 'received');
+        });
+
+        // Listen for private messages
+        socket.on('private message', (data) => {
+            console.log('Received private message:', data);
+            addMessage(`Private from ${data.from}: ${data.message}`, 'received');
+        });
+
+        // Function to send a message
+        function sendMessage() {
+            const message = document.getElementById('messageInput').value;
+            if (message.trim() !== '') {
+                socket.emit('chat message', message);
+                addMessage(`You: ${message}`, 'sent');
+                document.getElementById('messageInput').value = '';
+            }
+        }
+
+        // Function to send a private message
+        function sendPrivateMessage() {
+            const message = document.getElementById('messageInput').value;
+            if (message.trim() !== '') {
+                socket.emit('private message', {
+                    to: 'recipient-id', // Replace with actual recipient ID
+                    message: message
+                });
+                addMessage(`You (private): ${message}`, 'sent');
+                document.getElementById('messageInput').value = '';
+            }
+        }
+
+        // Function to add messages to the chat window
+        function addMessage(message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${type}`;
+            messageElement.textContent = message;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Handle Enter key press
+        document.getElementById('messageInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+
+</html>
