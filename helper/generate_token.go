@@ -13,7 +13,7 @@ import (
 func GenerateToken(user models.UserModels) (accessToken string, refreshToken string, err error) {
 	accessTokenClams := jwt.MapClaims{
 		"userId": user.UserId,
-		"exp":    time.Now().Add(time.Minute * 15).Unix(),
+		"exp":    time.Now().Add(time.Hour * 15).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, accessTokenClams)
 	accessToken, err = token.SignedString([]byte(os.Getenv("JWT_SECRET")))

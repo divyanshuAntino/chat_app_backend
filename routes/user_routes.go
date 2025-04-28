@@ -15,4 +15,6 @@ func SetUpUserRoutes(app *fiber.App, db *gorm.DB) {
 	api.Post("/login", userController.LoginUser)
 	api.Patch("/user-profile", userController.UpdateUserDetails)
 	api.Get("/get-user", userController.GetAllUser)
+	api.Get("/user-profile", userController.GetUserProfile)
+
 }

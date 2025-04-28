@@ -8,8 +8,8 @@ import (
 	"github.com/divyanshu050303/chat-app-backend/models"
 	"github.com/divyanshu050303/chat-app-backend/repository"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 
+	"github.com/google/uuid"
 	socketio "github.com/googollee/go-socket.io"
 	"github.com/googollee/go-socket.io/engineio"
 	"github.com/googollee/go-socket.io/engineio/transport"
@@ -32,6 +32,9 @@ type UserStatusController struct {
 type MessageController struct {
 	Repo *repository.MessageRepository
 }
+type UserInfoController struct {
+	Repo *repository.UserRepository
+}
 
 func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 	userStatusRepository := &repository.UserStatusRepository{DB: db}
@@ -40,6 +43,8 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 	roomController := &RoomController{Repo: roomRepository}
 	messageRepository := &repository.MessageRepository{DB: db}
 	messageController := &MessageController{Repo: messageRepository}
+	userRepository := &repository.UserRepository{DB: db}
+	userController := &UserInfoController{Repo: userRepository}
 	server := socketio.NewServer(&engineio.Options{
 		Transports: []transport.Transport{
 			&polling.Transport{
@@ -64,6 +69,7 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 
 		// Store message in database
 		msg := &models.MessageModels{
+			ID:       uuid.New().String(),
 			RoomID:   roomID,
 			SenderID: senderID,
 			Message:  message,
@@ -90,16 +96,26 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 
 		// Step 1: Check if room exists, create if not
 		var room models.RoomModels
-		err := roomController.Repo.DB.FirstOrCreate(&room, models.RoomModels{ID: roomID}).Error
+		err := roomController.Repo.DB.Where("id=?", roomID).Find(&room).Error
 		if err != nil {
-			log.Printf("Error creating or finding room: %v", err)
+			log.Printf("room is not created")
+
+		}
+
+		if room.ID != "" {
+			var messages []models.MessageModels
+			err := messageController.Repo.DB.Where("room_id=?", room.ID).Find(&messages).Error
+			if err != nil {
+				log.Printf("messages is not fetched form the room")
+			}
+			s.Emit("messages", messages)
 			return
 		}
 
 		// Step 2: Associate user with room (optional - if you have a join table)
 		roomUser := &models.RoomModels{
-			ID:      uuid.New().String(),
-			RoomId:  roomID,
+			ID: roomID,
+
 			UserId1: sender,
 			UserId2: receiver,
 		}
@@ -130,6 +146,65 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 			"room_id": roomID,
 			"user_id": sender,
 		})
+	})
+	server.OnEvent("/", "get room", func(s socketio.Conn, userId string) {
+		var rooms []models.RoomModels
+		var roomInfo []map[string]interface{}
+		error := roomController.Repo.DB.Where("user_id1=?", userId).Find(&rooms).Error
+		for _, room := range rooms {
+			var user models.UserModels
+			var message models.MessageModels
+			var userStatus models.UserStatusModles
+			err := userController.Repo.DB.Where("user_id=?", room.UserId2).Find(&user).Error
+			if err != nil {
+				log.Printf("while fetching user info %s", err)
+			}
+			err = userStatusController.Repo.DB.Where("user_id=?", room.UserId2).Find(&userStatus).Error
+			if err != nil {
+				log.Printf("while fetching user info %s", err)
+			}
+			userInfo := map[string]interface{}{
+				"userId":    user.UserId,
+				"userName":  user.Name,
+				"userImage": user.UserImage,
+			}
+			err = messageController.Repo.DB.Where("room_id = ?", room.ID).Order("created_at desc").First(&message).Error
+			if err != nil {
+				log.Printf("while fetching user info %s", err)
+			}
+			if message.ID == "" {
+				roomUser := map[string]interface{}{
+					"userInfo":    userInfo,
+					"isOnline":    userStatus.IsOnline,
+					"lastMessage": nil,
+				}
+				roomInfo = append(roomInfo, roomUser)
+			}
+			if message.ID != "" {
+				roomUser := map[string]interface{}{
+					"userInfo":    userInfo,
+					"isOnline":    userStatus.IsOnline,
+					"lastMessage": message,
+				}
+				roomInfo = append(roomInfo, roomUser)
+			}
+
+		}
+		if error != nil {
+			log.Printf("room is not fetched %s", error)
+		}
+
+		s.Emit("room_list", roomInfo)
+	})
+	server.OnEvent("/", "new message", func(s socketio.Conn, roomId string) {
+		var message models.MessageModels
+		err := messageController.Repo.DB.Where("room_id = ?", roomId).Order("created_at desc").First(&message).Error
+		if err != nil {
+			log.Printf("message is not fetched due to %s", err)
+		}
+
+		s.Emit("new_message", message)
+
 	})
 
 	server.OnError("/", func(s socketio.Conn, e error) {

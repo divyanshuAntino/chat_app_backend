@@ -8,7 +8,6 @@ import (
 
 type RoomModels struct {
 	ID        string    `gorm:"type:uuid;primaryKey;" json:"id"`
-	RoomId    string    `json:"roomid" gorm:"type:uuid;not null"`
 	UserId1   string    `json:"userid1" gorm:"type:uuid;not null"`
 	UserId2   string    `json:"userid2" gorm:"type:uuid;not null"`
 	CreatedAt time.Time `gorm:"default:now()" json:"created_at"`

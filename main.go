@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/divyanshu050303/chat-app-backend/controller"
 	"github.com/divyanshu050303/chat-app-backend/database"
 	"github.com/divyanshu050303/chat-app-backend/models"
 	"github.com/divyanshu050303/chat-app-backend/routes"
@@ -41,8 +42,8 @@ func main() {
 	routes.SetUpUserRoutes(app, db)
 
 	// Start Socket.IO server
-	// controller.OnSocketConnect(&fiber.Ctx{}, db)
-
+	go controller.OnSocketConnect(&fiber.Ctx{}, db)
 	// Start Fiber server
 	app.Listen(":8000")
+
 }

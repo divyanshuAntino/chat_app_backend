@@ -8,8 +8,8 @@ import (
 
 type MessageModels struct {
 	ID        string    `gorm:"type:uuid;primaryKey;" json:"id"`
-	RoomID    string    `gorm:"type:uuid;not null;references:rooms(id)" json:"room_id"`
-	SenderID  string    `gorm:"type:uuid;not null;references:users(id)" json:"sender_id"`
+	RoomID    string    `gorm:"not null" json:"room_id"`
+	SenderID  string    `gorm:"type:uuid;not null" json:"sender_id"`
 	Message   string    `gorm:"type:text;not null" json:"message"`
 	IsRead    bool      `gorm:"default:false" json:"is_read"`
 	CreatedAt time.Time `gorm:"default:now()" json:"created_at"`

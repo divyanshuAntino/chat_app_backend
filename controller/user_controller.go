@@ -159,3 +159,25 @@ func (ctrl *UserController) GetAllUser(c *fiber.Ctx) error {
 
 	return helper.ApiResponse(c, http.StatusOK, "Users fetched successfully", users)
 }
+func (ctrl *UserController) GetUserProfile(c *fiber.Ctx) error {
+	authError := helper.CheckUserIsLoggedInOrNot(c)
+	if authError != "" {
+		return helper.ApiResponse(c, http.StatusUnauthorized, authError, nil)
+	}
+	req := c.Request()
+	tokenString := string(req.Header.Peek("Authorization"))
+	uuid, err := helper.GetUserUUIDFromToken(tokenString)
+	var existingUser models.UserModels
+	err = ctrl.Repo.DB.Where("user_id=?", uuid).Find(&existingUser).Error
+	if err != nil {
+		helper.ApiResponse(c, http.StatusBadRequest, "Bad request ", nil)
+		return err
+	}
+	var users models.UserModels
+	err = ctrl.Repo.DB.Where("user_id = ?", uuid).Find(&users).Error
+	if err != nil {
+		return helper.ApiResponse(c, http.StatusInternalServerError, "Failed to fetch users", nil)
+	}
+
+	return helper.ApiResponse(c, http.StatusOK, "User fetched successfully", users)
+}
