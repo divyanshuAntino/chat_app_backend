@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+
+	// "strings"
 	"time"
 
 	"github.com/divyanshu050303/chat-app-backend/models"
@@ -58,10 +61,51 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 
 	server.OnConnect("/", func(s socketio.Conn) error {
 		s.SetContext("")
-		log.Println("connected:", s.ID())
+
 		return nil
 	})
+	server.OnEvent("/", "user-online", func(s socketio.Conn, data map[string]interface{}) {
+		userId := data["userId"].(string)
+		status := &models.UserStatusModles{
+			UserID:   userId,
+			IsOnline: true,
+			LastSeen: time.Now(),
+		}
+		err := userStatusController.Repo.DB.Save(status).Error
+		if err != nil {
+			log.Printf("Error updating user status: %v", err)
+			return
+		}
+		userStatus := map[string]interface{}{
+			"userId":   userId,
+			"isOnline": status.IsOnline,
+			"lastSeen": status.LastSeen,
+		}
+		s.Emit("get room", userId)
+		s.Emit("user-online", userStatus)
 
+	})
+	server.OnEvent("/", "user-offline", func(s socketio.Conn, data map[string]interface{}) {
+		userId := data["userId"].(string)
+		status := &models.UserStatusModles{
+			UserID:   userId,
+			IsOnline: false,
+			LastSeen: time.Now(),
+		}
+		err := userStatusController.Repo.DB.Save(status).Error
+		if err != nil {
+			log.Printf("Error updating user status: %v", err)
+			return
+		}
+		userStatus := map[string]interface{}{
+			"userId":   userId,
+			"isOnline": status.IsOnline,
+			"lastSeen": status.LastSeen,
+		}
+		s.Emit("get room", userId)
+		s.Emit("user-online", userStatus)
+
+	})
 	server.OnEvent("/", "chat message", func(s socketio.Conn, data map[string]interface{}) {
 		roomID := data["room_id"].(string)
 		message := data["message"].(string)
@@ -81,12 +125,12 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 			return
 		}
 
-		// Broadcast the message to all clients in the room
-		server.BroadcastToNamespace("/", "chat message", map[string]interface{}{
-			"room_id":   roomID,
-			"sender_id": senderID,
-			"message":   message,
-			"timestamp": msg.CreatedAt,
+		// Broadcast to all in the room including sender
+		server.BroadcastToRoom("/", roomID, "new_message", map[string]interface{}{
+			"room_id":    roomID,
+			"sender_id":  senderID,
+			"message":    message,
+			"created_at": msg.CreatedAt.Format(time.RFC3339),
 		})
 	})
 	server.OnEvent("/", "join room", func(s socketio.Conn, data map[string]interface{}) {
@@ -94,72 +138,57 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 		sender := data["sender_id"].(string)
 		receiver := data["receiver_id"].(string)
 
-		// Step 1: Check if room exists, create if not
+		// Check/create room
 		var room models.RoomModels
-		err := roomController.Repo.DB.Where("id=?", roomID).Find(&room).Error
+		err := roomController.Repo.DB.Where("id = ?", roomID).First(&room).Error
 		if err != nil {
-			log.Printf("room is not created")
-
-		}
-
-		if room.ID != "" {
-			var messages []models.MessageModels
-			err := messageController.Repo.DB.Where("room_id=?", room.ID).Find(&messages).Error
-			if err != nil {
-				log.Printf("messages is not fetched form the room")
+			// Create new room if not exists
+			room = models.RoomModels{
+				ID:      roomID,
+				UserId1: sender,
+				UserId2: receiver,
 			}
-			s.Emit("messages", messages)
-			return
+			if err := roomController.Repo.DB.Create(&room).Error; err != nil {
+				log.Printf("Error creating room: %v", err)
+				return
+			}
 		}
 
-		// Step 2: Associate user with room (optional - if you have a join table)
-		roomUser := &models.RoomModels{
-			ID: roomID,
-
-			UserId1: sender,
-			UserId2: receiver,
-		}
-		err = roomController.Repo.DB.FirstOrCreate(&roomUser, roomUser).Error
-		if err != nil {
-			log.Printf("Error adding user to room: %v", err)
-			return
-		}
-
-		// Step 3: Update user status to online
-		status := &models.UserStatusModles{
-			UserID:   sender,
-			IsOnline: true,
-			LastSeen: time.Now(),
-		}
-		err = userStatusController.Repo.DB.Save(status).Error
-		if err != nil {
-			log.Printf("Error updating user status: %v", err)
-			return
-		}
-
-		// Step 4: Join the room via Socket.IO
 		s.Join(roomID)
 		log.Printf("User %s joined room %s", sender, roomID)
 
-		// Step 5: Broadcast event to room
-		server.BroadcastToNamespace("/", "user joined", map[string]interface{}{
-			"room_id": roomID,
-			"user_id": sender,
-		})
+		var messages []models.MessageModels
+		if err := messageController.Repo.DB.
+			Where("room_id = ?", roomID).
+			Order("created_at asc").
+			Find(&messages).Error; err != nil {
+			log.Printf("Error fetching messages: %v", err)
+		} else {
+			s.Emit("messages", messages)
+		}
 	})
 	server.OnEvent("/", "get room", func(s socketio.Conn, userId string) {
 		var rooms []models.RoomModels
 		var roomInfo []map[string]interface{}
-		error := roomController.Repo.DB.Where("user_id1=?", userId).Find(&rooms).Error
+		error := roomController.Repo.DB.Where("user_id1 = ? OR user_id2 = ?", userId, userId).Find(&rooms).Error
+		fmt.Print(rooms)
+		if error != nil {
+			log.Printf("while fetching room info %s", error)
+		}
 		for _, room := range rooms {
 			var user models.UserModels
 			var message models.MessageModels
 			var userStatus models.UserStatusModles
-			err := userController.Repo.DB.Where("user_id=?", room.UserId2).Find(&user).Error
+			otherUserId := room.UserId1
+			if room.UserId1 == userId {
+				otherUserId = room.UserId2
+			}
+
+			err := userController.Repo.DB.Where("user_id=?", otherUserId).Find(&user).Error
 			if err != nil {
 				log.Printf("while fetching user info %s", err)
 			}
-			err = userStatusController.Repo.DB.Where("user_id=?", room.UserId2).Find(&userStatus).Error
+			err = userStatusController.Repo.DB.Where("user_id=?", otherUserId).Find(&userStatus).Error
 			if err != nil {
 				log.Printf("while fetching user info %s", err)
 			}
@@ -176,7 +205,9 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 				roomUser := map[string]interface{}{
 					"userInfo":    userInfo,
 					"isOnline":    userStatus.IsOnline,
+					"lastSeen":    userStatus.LastSeen,
 					"lastMessage": nil,
+					"roomID":      room.ID,
 				}
 				roomInfo = append(roomInfo, roomUser)
 			}
@@ -185,6 +216,8 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 					"userInfo":    userInfo,
 					"isOnline":    userStatus.IsOnline,
 					"lastMessage": message,
+					"roomID":      room.ID,
+					"lastSeen":    userStatus.LastSeen,
 				}
 				roomInfo = append(roomInfo, roomUser)
 			}
@@ -207,6 +240,27 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 
 	})
 
+	server.OnEvent("/", "typing", func(s socketio.Conn, data map[string]interface{}) {
+		roomID := data["room_id"].(string)
+		senderID := data["sender_id"].(string)
+		server.BroadcastToRoom("/", roomID, "user_typing", map[string]interface{}{
+			"sender_id": senderID,
+			"is_typing": true,
+		})
+	})
+	server.OnEvent("/", "stop_typing", func(s socketio.Conn, data map[string]interface{}) {
+		roomID := data["room_id"].(string)
+		senderID := data["sender_id"].(string)
+		s.Emit("user_stop_typing", map[string]interface{}{
+			"sender_id": senderID,
+			"is_typing": false,
+		})
+		server.BroadcastToRoom("/", roomID, "user_stop_typing", map[string]interface{}{
+			"sender_id": senderID,
+			"is_typing": false,
+		})
+	})
+
 	server.OnError("/", func(s socketio.Conn, e error) {
 		log.Println("meet error:", e)
 	})
@@ -226,7 +280,6 @@ func OnSocketConnect(ctx *fiber.Ctx, db *gorm.DB) {
 		}
 	})
 
-	// Start the Socket.IO server in a goroutine
 	go func() {
 		if err := server.Serve(); err != nil {
 			log.Printf("Socket.IO server error: %s\n", err)
